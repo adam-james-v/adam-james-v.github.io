@@ -19,7 +19,7 @@ Now I [stream](https://www.twitch.tv/adam_james_tv) programming sessions, make d
 ![it's a drawing of me](self.png)
 
 ## Pages
-[adam-james-tv](adam-james-v.github.io/stream/)
+[adam-james-tv](https://adam-james-v.github.io/stream/)
 
 ## Latest Posts
 [random-backgorund-generator (rbg)](https://adam-james-v.github.io/rbg/)
