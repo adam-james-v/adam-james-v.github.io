@@ -2,7 +2,13 @@
 **published: 2020-07-13**
 **edited: 2020-07-13**
 
-I stream programming sessions 4 days per week. Each day is roughly earmarked for different types of work:
+{ex}
+[:style "img{max-width: 100%;margin: 0 auto;}"]
+{ex}
+
+![adam-james-tv-glasses-illustration](glasses.png)
+
+I [stream](https://twitch.tv/adam_james_tv) programming sessions 4 days per week. Each day is roughly earmarked for different types of work:
 
 ## Monday - Library Work
 [Stylo](https://github.com/adam-james-v/stylo) is a document rendering library I am writing in Clojure. It is *very much* a **Work In Progress**.

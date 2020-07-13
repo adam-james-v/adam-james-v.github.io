@@ -24,3 +24,11 @@ Now I [stream](https://www.twitch.tv/adam_james_tv) programming sessions, make d
 ## Latest Posts
 [random-backgorund-generator (rbg)](https://adam-james-v.github.io/rbg/)
 
+## Old Posts
+These posts are from I site I started years ago. They're not perfect, but I find it useful to share them anyway.
+
+[Designing an iPad Stand](https://adam-james-v.github.io/oldsite/design/ipad_stand/)
+[Building a TV Frame](https://adam-james-v.github.io/oldsite/design/tv_frame/)
+[Prototype CAD Web Viewer](https://adam-james-v.github.io/oldsite/design/web_viewer/)
+[Iron Ring - A Canadian Engineer's Tradition](https://adam-james-v.github.io/oldsite/engineering/iron_ring/)
+
