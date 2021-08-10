@@ -196,23 +196,23 @@
     (circle-pts 28 120)))
   svg)</pre></div><p>A new idea... deviate a pt randomly within a radius around itself, or do not deviate according to some deviation chance distribution.
 <p>It would be cooler to have a 'deviate along' function where a point deviates some distance within R only along a single vector. This could be used to make a circle with random 'rays' extending from its center. It would look cooler I think.
-<p><div class="code-container"><pre class="src-clojure">(def deviate-chance [true true true #_false false])
+<p><div class="code-container"><pre class="src-clojure">(def deviate-chance [true true true false false])
 
 (defn- rand-t [] 
   (let [n 10] 
     (/ (inc (rand-int n)) (float n))))
 
-(defn deviate [r [x y]]
+(defn deviate [c ctr pt]
   (let [deviate?
         (get deviate-chance (rand-int (count deviate-chance)))]
     (if deviate?
-      [((get [+ -] (rand-int 2)) x (* (rand-t) r))
-       ((get [+ -] (rand-int 2)) y (* (rand-t) r))]
-      [x y])))
+      (let [ray (p/line ctr pt)]
+        (ray ((get [- +] (rand-int 2)) 1 (* (rand-t) c))))
+      pt)))
       
 (defn devious-poly
   [n r]
-  (let [pts (mapv (partial deviate 7) (circle-pts n r))]
+  (let [pts (mapv (partial deviate 0.125 [0 0]) (circle-pts n r))]
     (path/polygon pts)))
 
 (-> 
