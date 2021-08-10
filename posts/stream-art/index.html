@@ -98,7 +98,8 @@
   [svg-clj.composites :as comp :refer [svg]]
   [svg-clj.path :as path]
   [svg-clj.parametric :as p]
-  [svg-clj.layout :as lo]))</pre></div><p></p></section><section class="hsec2"><h2>utils</h2><section class="hsec3"><h3>svg</h3>Make an SVG function. It turns out that you can natively display SVG in emacs (GUI mode, not terminal). This lets us export SVG to a file and immediately display it as a code block result. The svg! fn helps with this.
+  [svg-clj.layout :as lo]
+  [reagent.core :as r]))</pre></div><p></p></section><section class="hsec2"><h2>utils</h2><section class="hsec3"><h3>svg</h3>Make an SVG function. It turns out that you can natively display SVG in emacs (GUI mode, not terminal). This lets us export SVG to a file and immediately display it as a code block result. The svg! fn helps with this.
 <p>This is a side-effecting function that writes a file to the same directory as this org file. If you want to control where images are saved, you can change this function and/or the fn calls to save into a directory structure of your choosing.
 <p>The file name is returned as a symbol so that org-mode correctly inserts an inline image link to that filename. If you return it as a string, org-mode incorrectly has double quotes around the filename, resulting in no display of the image.
 <p><div class="code-container"><pre class="src-clojure">#_(defn svg!
@@ -107,12 +108,35 @@
                    svg-data
                    (svg svg-data))]
     (spit fname (html svg-data))
-    (symbol fname)))
-</pre></div><p></p></p></p></p></section></section><section class="hsec2"><h2>drawing</h2>This is where I build the drawing...
-<p></p><section class="hsec3"><h3>Ideation</h3>Start the drawing process with a very simple random pattern that looks quite nice. Randomly draw forward or backward slashes along a square grid to make a maze type pattern. Very simple, but still quite pleasing.
+    (symbol fname)))</pre></div><p></p></p></p></p></section><section class="hsec3"><h3>time</h3>Time utility is only relevent in a CLJS
+<em>browser context. This is here as an idea... not sure if the usage pattern is perfect yet. I am basing this off of OpenSCAD's $t special variable which is a parameter running from 0 to 1 based on framerate
+</em>FPS settings. This is a rough approximation of that where $t runs from 0 to 1 and resets every second.
+<!-- 
+ --><p>If you want to update a src block with time, you must @time inside the block. 
+<p>Then, any randomly generated functions will 're-roll', so there must be some defonce trickery and/or better random generation machinery (eg. use a seed approach, so you can lock in a random config by passing in the seed to the function).
+<p><div class="code-container"><pre class="src-clojure">(defonce time (r/atom 0))
+
+(add-watch time :reset
+  (fn [key atom old-state new-state]
+    (when (<= 100.1 new-state)
+      (reset! time 0))))
+
+(js/setTimeout #(swap! time inc) 1)
+
+(def $t (/ @time 100))
+(def $st (js/Math.sin (* $t js/Math.PI)))
+
+(defn ease-in-out-circ
+  [t]
+  (if (< t 0.5)
+    (/ (- 1 (js/Math.sqrt (- 1 (js/Math.pow (* 2 t) 2)))) 2)
+    (/ (+ (js/Math.sqrt (- 1 (js/Math.pow (+ (* -2 t) 2) 2))) 1) 2)))
+
+(def $cst (ease-in-out-circ $st))</pre></div></p></p></p></section></section><section class="hsec2"><h2>Drawing and Ideas</h2>This is where I build the drawing...
+<p></p><section class="hsec3"><h3>Basic Random Grid Thing</h3>Start the drawing process with a very simple random pattern that looks quite nice. Randomly draw forward or backward slashes along a square grid to make a maze type pattern. Very simple, but still quite pleasing.
 <p>Here are some parameters for the drawing.
-<p><div class="code-container"><pre class="src-clojure">(def cell-size 20)
-(def base-style {:stroke "#ff839d"
+<p><div class="code-container"><pre class="src-clojure">(def cell-size 16)
+(def base-style {:stroke "#83aa9d"
                  :stroke-width 3
                  :stroke-linecap "round"})</pre></div><p>And here we can quickly assemble an example.
 <p><div class="code-container"><pre class="src-clojure">(def fsl
@@ -131,24 +155,8 @@
   (lo/distribute-on-pts 
    (repeatedly rsl) 
    (p/rect-grid 20 20 cell-size cell-size))
-  svg)</pre></div><p>I think we can extend this premise using some simple bezier curves to add to the list of curves to draw within each cell.
-<p><div class="code-container"><pre class="src-clojure">(def cell-size 16)
-(def base-style {:stroke "#ff839d"
-                 :fill "none"
-                 :stroke-width 3
-                 :stroke-linecap "round"})
-
-(def fsl
-  (-> (path/line [cell-size 0]
-                   [0 cell-size])
-      (tf/style base-style)))
-
-(def bsl
-  (-> (path/line [0 0]
-                   [cell-size cell-size])
-      (tf/style base-style)))
-
-(def bfsl1
+  svg)</pre></div><p></p></p></p></p></p></section><section class="hsec3"><h3>Extending The Idea</h3>I think we can extend this premise using some simple bezier curves to add to the list of curves to draw within each cell.
+<p><div class="code-container"><pre class="src-clojure">(def bfsl1
   (-> (path/bezier [cell-size 0]
                    [0 0]
                    [0 cell-size])
@@ -182,8 +190,7 @@
   (lo/distribute-on-pts 
    (repeatedly rsl) 
    (p/rect-grid 20 20 cell-size cell-size))
-  svg)
-</pre></div><p>If I use circle paths, I can make a neat looking ring of glyphs.
+  svg)</pre></div><p></p></p></section><section class="hsec3"><h3>Circle Path Ideas</h3>If I use circle paths, I can make a neat looking ring of glyphs.
 <p><div class="code-container"><pre class="src-clojure">(defn circle-pts [n r]
   (let [step (/ 1 n)]
     (map (p/circle r) (range 0 1 step))))
@@ -194,7 +201,22 @@
    (concat
     (circle-pts 28 120)
     (circle-pts 28 120)))
-  svg)</pre></div><p>A new idea... deviate a pt randomly within a radius around itself, or do not deviate according to some deviation chance distribution.
+  svg)</pre></div><p></p></p></section><section class="hsec3"><h3>Gradients</h3><div class="code-container"><pre class="src-clojure">(defn linear-gradient
+  [id deg col-a col-b]
+  (let [[x1 y1] (utils/rotate-pt-around-center [0 50] deg [50 50])
+        [x2 y2] (utils/rotate-pt-around-center [100 50] deg [50 50])]
+    [:linearGradient {:id id
+                      :x1 (str x1 "%")
+                      :y1 (str y1 "%")
+                      :x2 (str x2 "%")
+                      :y2 (str y2 "%")}
+     [:stop {:offset "0%" :stop-color col-a}]
+     [:stop {:offset "100%" :stop-color col-b}]]))
+@time
+[:svg [:defs
+  (linear-gradient "grad" (* $t 360) "#1D2B64" "#F8CDDA")
+  (linear-gradient "grad1" 3 "slategray" "lavender")
+  (linear-gradient "grad2" 3 "slategray" "lavender")]]</pre></div><p></p></section><section class="hsec3"><h3>Deviating Points Randomly</h3>A new idea... deviate a pt randomly within a radius around itself, or do not deviate according to some deviation chance distribution.
 <p>It would be cooler to have a 'deviate along' function where a point deviates some distance within R only along a single vector. This could be used to make a circle with random 'rays' extending from its center. It would look cooler I think.
 <p><div class="code-container"><pre class="src-clojure">(def deviate-chance [true true true false false])
 
@@ -209,23 +231,63 @@
       (let [ray (p/line ctr pt)]
         (ray ((get [- +] (rand-int 2)) 1 (* (rand-t) c))))
       pt)))
-      
-(defn devious-poly
-  [n r]
-  (let [pts (mapv (partial deviate 0.125 [0 0]) (circle-pts n r))]
-    (path/polygon pts)))
 
-(-> 
-  (el/g 
-   (devious-poly 60 120) 
-   (devious-poly 50 100) 
-   (devious-poly 40 80) 
-   (devious-poly 30 60) 
-   (devious-poly 20 40) 
-   (devious-poly 10 20))
+(defn parametric-devious-poly
+  [n r]
+  (let [pts (circle-pts n r)
+        dpts (mapv (partial deviate 0.125 [0 0]) pts)
+        lines (map p/line pts dpts)]
+    (fn [t]
+      (path/polygon (mapv #(% t) lines)))))
+
+(defonce asdf1 (parametric-devious-poly 60 120))
+(defonce asdf2 (parametric-devious-poly 50 100))
+(defonce asdf3 (parametric-devious-poly 40 80))
+(defonce asdf4 (parametric-devious-poly 30 60))
+(defonce asdf5 (parametric-devious-poly 20 40))
+(defonce asdf6 (parametric-devious-poly 10 20))
+
+@time
+
+(->
+  (el/g
+   (asdf1 (* (- $cst 0.5) -4))
+   (asdf2 (* (- $cst 0.5) 4))
+   (asdf3 (* (- $cst 0.5) -3))
+   (asdf4 (* (- $cst 0.5) 3))
+   (asdf5 (* (- $cst 0.5) -6))
+   (asdf6 (* (- $cst 0.5) 6)))
   (tf/style base-style)
-  svg)
-</pre></div><p></p></p></p></p></p></p></p></p></p></p></p></p></section></section><section class="hsec2"><h2>This is a work in progress example</h2>This project is ongoing, but I think is still worth pushing to my blog as an example of how you can 'evolve' your documents.
+  (tf/style {:stroke "url(#grad)"
+             :stroke-width 7})
+  (tf/translate [150 150])
+  (svg 300 300))</pre></div><p></p></p></p></section><section class="hsec3"><h3>Moving Bezier Control Points</h3>Tie Bezier points to the time variables and see if things look cool.
+<p><div class="code-container"><pre class="src-clojure">(def asdf (p/circle (+ 10 (* $st (+ $t) 40))))
+(def beza
+  (-> (tf/merge-paths
+       (path/bezier [0 0] 
+       	            (utils/v- [20 160] (asdf $t))
+        	           (utils/v+ [140 20] (asdf (* 2 $t)))
+          	         [200 200])
+       (path/polyline [[0 0] [-10 -10] [-10 210] [210 210] [200 200]]))
+    (tf/translate [0 0])))
+
+(def bezb
+  (-> (tf/merge-paths
+       (path/bezier [0 0] 
+       	            (utils/v- [20 160] (asdf $t))
+        	           (utils/v+ [140 20] (asdf (* 2 $t)))
+          	         [200 200])
+       (path/polyline [[0 0] [-10 -10] [210 -10] [210 210] [200 200]]))
+    (tf/translate [0 0])))
+
+@time
+(->
+  (el/g
+  	(-> beza (tf/style {:fill "url(#grad1)"}))
+  	(-> bezb (tf/style {:fill "url(#grad)"})))
+  (svg 200 200))
+</pre></div><p></p></p></section></section><section class="hsec2"><h2>This is a work in progress example</h2>This project is ongoing, but I think is still worth pushing to my blog as an example of how you can 'evolve' your documents.
 <p>For something non-critical like this artwork, it's a fun, low-concern way to iterate on some simple ideas. It's actually a lot of fun to play with ideas directly in the webpage output too, though at this time, you still can't save changes in the browser, so just be sure to copy/paste any winning ideas back into your orginal document.
 <p>Over time, I think I will make things more ergonomic for this use case, but I am very pleased with how fun and simple it was to mess around with creating some artwork using Clojurescript and SVG in the browser.
 <p>Feel free to mess around with the code I've got above. Have a nice day, stay cool, stay healthy.
