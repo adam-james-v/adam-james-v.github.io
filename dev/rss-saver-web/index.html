@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>RSS-saver-web</title><link href="style.css" rel="stylesheet" type="text/css"><link href="codemirror.css" rel="stylesheet" type="text/css"><link href="nord.css" rel="stylesheet" type="text/css"><script src="codemirror.js" type="text/javascript"></script><script src="clojure.js" type="text/javascript"></script><script src="react.production.min.js" type="text/javascript"></script><script src="react-dom.production.min.js" type="text/javascript"></script><script src="radish.js" type="text/javascript"></script><script src="radish.reagent.js" type="text/javascript"></script><script type="application/x-scittle">(require '[reagent.core :as r]
+         '[reagent.dom :as rdom])
+
+(defn editor
+  [id ns-str state]
+  (let [cm (.fromTextArea  js/CodeMirror
+                           (.getElementById js/document id)
+                           #js {:mode "clojure"
+                                :theme "nord"
+                                :lineNumbers true
+                                :smartIndent true
+                                :tabSize 2})]
+    (.on cm "change" (fn [_ _]
+                       (reset! state (str ns-str (.getValue cm)))))
+    (.setSize cm "auto" "auto")))
+
+(defn renderable-element?
+  [elem]
+  (and (vector? elem)
+       (keyword? (first elem))
+       (not= (str (first elem)) ":")
+       (not (str/includes? (str (first elem)) "/"))
+       (not (re-matches #"[0-9.#].*" (name (first elem))))
+       (re-matches #"[a-zA-Z0-9.#]+" (name (first elem)))))
+
+(defn renderable?
+  [elem]
+  (when (or (renderable-element? elem) (seq? elem))
+    (let [[k props content] elem
+          [props content] (if (and (nil? content)
+                                   (not (map? props)))
+                            [nil props]
+                            [props content])]
+      (cond
+        (seq? elem) (not (empty? (filter renderable? elem)))
+        (seq? content) (not (empty? (filter renderable? content)))
+        :else (or (renderable-element? content)
+                  (renderable-element? elem)
+                  (string? content)
+                  (number? content))))))
+
+(defn result-component
+  [ns-str state]
+  (fn [ns-str state]
+    (let [result (try (js/radish.core.eval_string (str ns-str @state))
+                      (catch :default e
+                        (.-message e)))]
+      [:div.result
+       [:pre
+        [:div "RESULT:"]
+        (when (renderable? result) [:div.render result])
+        [:code (if result (str result) "nil")]]])))
+
+(def current-ns (atom `'~'user))
+
+(defn contains-ns?
+  [s]
+  (str/includes? s "(ns "))
+
+(defn extract-ns
+  [src-str]
+  (->> src-str
+       (#(str "[" % "]"))
+       read-string
+       (filter (fn [[sym & _]] (= sym 'ns))) ;; drop any code that isn't a ns decl
+       last
+       second))
+
+(defn run-src
+  [elem]
+  (let [id (gensym "src-")
+        src-str (.-innerText elem)
+        parent (.-parentNode elem)
+        this-ns (if (contains-ns? src-str)
+                  `'~(extract-ns src-str)
+                  @current-ns)
+        ns-str (str "(in-ns " this-ns ")\n")
+        state (r/atom src-str)]
+    (reset! current-ns this-ns) 
+    (rdom/render [:textarea {:id id} src-str] parent)
+    (editor id ns-str state)
+    (rdom/render [result-component ns-str state] parent)))
+
+(defn run! []
+  (let [blocks (vec (.getElementsByClassName js/document "src-clojure"))]
+    (mapv run-src blocks)))
+
+(run!)
+</script></head><body><header><h1>RSS-saver-web</h1></header><main><section id="root"><section class="hsec2"><h2>RSS-saver-web</h2><p>A simple Clojure (Babashka) script to save world@hey.com blog posts locally.
+<p>I use hey.com's blog feature to write blog posts to help me clarify and improve my own thinking about life, design, and programming. It's a cool feature of a nice email service, but I worry that I may not be able to retrieve my posts in the event of service shutdown, or if I move on to another email provider in the future.
+<p>This script is meant to be run automatically every night (or so) via a crontab entry. It downloads the feed.atom xml file from the provided URL, checks for any changes from the previous download, and saves new entries.
+<p></p></p></p></p></section><section class="hsec2"><h2>main</h2><section class="hsec3"><h3>ns</h3>As part of the design criteria, I want this to work without pulling any new libraries from outside of the babashka tool. This means sticking with clojure.data.xml even though other libraries might be a little more straight forward. I can build a zipper editor easily enough so it's not a problem.
+<p>I'll want to run it as a CLI, so I'll need tools.cli as well.
+<p><div class="code-container"><pre class="src-clojure">(ns rss-saver.main
+ (:require  [clojure.string :as str]
+  [clojure.data.xml :as xml]
+  [clojure.zip :as zip]
+  [ajax.core :refer [GET POST]]))</pre></div><p></p></p></p></section><section class="hsec3"><h3>get</h3>Use cljs-ajax to get the feed XML and store in in an atom. Defonce is used to prevent the feed atom from being overwritten.
+<p>This should be a read-only src block
+<p><div class="code-container"><pre class="src-clojure">(defonce feed (atom ""))
+(defn fetch [] (GET "/feed.atom" {:handler #(reset! feed %)}))
+(fetch)
+(def feed-str (str @feed))</pre></div><p></p></p></p></section><section class="hsec3"><h3>zipper-tools</h3>I want to get better with zippers, but for now, I can use the examples provided by 
+<a href="https://ravi.pckl.me/short/functional-xml-editing-using-zippers-in-clojure/">https://ravi.pckl.me/short/functional-xml-editing-using-zippers-in-clojure/</a>.
+<!-- 
+ -->I should probably make a post/video about zippers to improve my own understanding of them, and re-implement my own editor functions in that process.
+<p><div class="code-container"><pre class="src-clojure">(defn edit-nodes
+  "Edit nodes from `zipper` that return `true` from the `matcher` predicate fn with the `editor` fn.
+  Returns the root of the provided zipper, *not* a zipper.
+  The `matcher` fn expects a zipper location, `loc`, and returns `true` (or some value) or `false` (or nil).
+  The `editor` fn expects a `node` and returns a potentially modified `node`."
+  [zipper matcher editor]
+  (loop [loc zipper]
+    (if (zip/end? loc)
+      (zip/root loc)
+      (if-let [matcher-result (matcher loc)]
+        (let [new-loc (zip/edit loc editor)]
+          (if (not (= (zip/node new-loc) (zip/node loc)))
+            (recur (zip/next new-loc))
+            (recur (zip/next loc))))
+        (recur (zip/next loc))))))
+
+(defn remove-nodes
+  "Remove nodes from `zipper` that return `true` from the `matcher` predicate fn.
+  Returns the root of the provided zipper, *not* a zipper.
+  The `matcher` fn expects a zipper location, `loc`, and returns `true` (or some value) or `false` (or nil)."
+  [zipper matcher]
+  (loop [loc zipper]
+    (if (zip/end? loc)
+      (zip/root loc)
+      (if-let [matcher-result (matcher loc)]
+        (let [new-loc (zip/remove loc)]
+          (recur (zip/next new-loc)))
+        (recur (zip/next loc))))))
+
+(defn get-nodes
+  "Returns a list of nodes from `zipper` that return `true` from the `matcher` predicate fn.
+  The `matcher` fn expects a zipper location, `loc`, and returns `true` (or some value) or `false` (or nil)."
+  [zipper matcher]
+  (loop [loc zipper
+         acc []]
+    (if (zip/end? loc)
+      acc
+      (if (matcher loc)
+        (recur (zip/next loc) (conj acc (zip/node loc)))
+        (recur (zip/next loc) acc)))))
+
+(defn match-tag
+  "Returns a `matcher` fn that matches any node containing the specified `key` as its `:tag` value."
+  [key]
+  (fn [loc]
+    (let [node (zip/node loc)
+          {:keys [tag]} node]
+      (= tag key))))
+</pre></div><p></p></p></section><section class="hsec3"><h3>entry-nodes</h3>Slurp the XML from the given URL. This returns a string which can be parsed with xml/parse-str. The feed itself has some extra data we don't need, so I want to turn it into a zipper and get a list of just the entry nodes, which are the posts in the blog.
+<p><div class="code-container"><pre class="src-clojure">(defn feed-str->entries
+  "Returns a sequence of parsed article entry nodes from an XML feed string."
+  [s]
+  (-> s
+      (xml/parse-str {:namespace-aware false})
+      zip/xml-zip
+      (get-nodes (match-tag :entry))))
+</pre></div><p></p></p></section><section class="hsec3"><h3>entry-transforms</h3>The entire feed has been parsed down to a sequence of entries, each of which can be considered its own tree of nodes. Node transforms can now be built to work with each entry individually.
+<p></p><section class="hsec4"><h4>normalize</h4>Each entry can be 'flattened' down a bit, so I have a normalize function to help with that. Content within any node is a sequence of strings or other nodes. At this stage, all strings within the entry's content are empty or newline characters and so can be filtered out.
+<p>There are two special elements: links and the author content. Links have empty 
+<code>:content
+</code> tags but need the 
+<code>:href
+</code> from the attributes instead, so a cond is built to handle this. The author map is built separately, using the same map function as with the rest of the content. Then, the content and author maps are merged to form the flat, normalized map, which can be processed further.
+<!-- 
+ --><p><div class="code-container"><pre class="src-clojure">(defn normalize-entry
+  "Normalizes the entry node by flattening content into a map."
+  [entry]
+  (let [content (filter map? (:content entry))
+        f (fn [{:keys [tag content] :as node}]
+            (let [val (cond (= tag :link) (get-in node [:attrs :href])
+                            :else (first content))]
+                {tag val}))
+        author-map (->> content
+                        (filter #(= (:tag %) :author))
+                        first :content
+                        (filter map?)
+                        (map f)
+                        (apply merge))]
+   (apply merge (conj
+                 (map f (remove #(= (:tag %) :author) content))
+                 author-map))))
+</pre></div><p></p></p></p></section><section class="hsec4"><h4>clean-html</h4>Since no external libraries are used, I am manipulating XML strings slightly to keep the XML parser from complaining about html tags that don't have terminating tags, like <br> and <img>. At the same time, I unwrap image tags from figures, which is how Hey.com wraps images in entries.
+<p>This string cleaning method is as bit of a hack, but works fine and is meant to allow 
+<code>clojure.data.xml
+</code> to continue being used for further parsing/transforming steps later on in the script.
+<!-- 
+ --><p>The clean-html function is run on every entry's content string after normalization.
+<p><div class="code-container"><pre class="src-clojure">(defn unwrap-img-from-figure
+  "Returns the simplified `:img` node from its parent node."
+  [node]
+  (let [img-node (-> node
+                 zip/xml-zip
+                 (get-nodes (match-tag :img))
+                 first)
+        new-attrs (-> img-node :attrs
+                      (dissoc :srcset :decoding :loading))]
+    (assoc img-node :attrs new-attrs)))
+
+(defn clean-html
+  "Cleans up the html string `s`.
+  The string is well-formed html, but is coerced into XML conforming form by closing <br> and <img> tags.
+  The emitted XML string has the <\\?xml...> tag stripped.
+  This cleaning is done so that clojure.data.xml can continue to be used for parsing in later stages."
+  [s]
+  (let [s (-> s
+              (str/replace "<br>" "<br></br>")
+              (str/replace #"<img[\w\W]+?>" #(str %1 "</img>")))]
+    (-> s
+        (xml/parse-str {:namespace-aware false})
+        zip/xml-zip
+        (edit-nodes (match-tag :figure) unwrap-img-from-figure)
+        xml/emit-str
+        (str/replace #"<\?xml[\w\W]+?>" ""))))
+</pre></div><p></p></p></p></p></section></section><section class="hsec3"><h3>node-transforms</h3>The .edn file output will have a Hiccup data structure as its 
+<code>:post
+</code> value. So, I need to build a set of functions that transform XML nodes (defrecords, which can be treated just as Clojure maps) into Hiccup-style vectors (eg. 
+<code>[:p {:display "inline-block"} "This is the content of a <p> tag.]
+</code>).
+<!-- 
+ --><p></p><section class="hsec4"><h4>dispatch</h4>I want to dispatch slightly different behaviour based on the element tag, so will use a multimethod. I like to build in a simple check in the dispatch function for lists of nodes. This way, I can handle recursive use of 
+<code>node->hiccup
+</code> by building the 
+<code>:list
+</code> method appropriately.
+<!-- 
+ --><p><div class="code-container"><pre class="src-clojure">(defmulti node->hiccup
+  (fn [node]
+    (cond
+      (map? node) (:tag node)
+      (and (seqable? node) (not (string? node))) :list
+      :else :string)))
+</pre></div><p></p></p></section><section class="hsec4"><h4>simple-cases</h4>I don't need much special behaviour, so the default 'catch-all' method will do most of the work. A simple string case and div case are also given.
+<p><div class="code-container"><pre class="src-clojure">(defmethod node->hiccup :string
+  [node]
+  (when-not (= (str/trim node) "") node))
+
+(defmethod node->hiccup :div [node] (node->hiccup (:content node)))
+(defmethod node->hiccup :default
+  [{:keys [tag attrs content]}]
+  [tag attrs (node->hiccup content)])
+</pre></div><p></p></p></section><section class="hsec4"><h4>List Case</h4>This case has a bit of machinery to it. Every time the list method is used, it means that a sequence of nodes have to be handled. To clean up the structure, I am building a flattening function that runs on each list. This flatten function will flatten everything down completely, except for hiccup vectors. I can't simply 
+<code>mapcat
+</code> everything because it would destry the hiccup-style structure, as vectors can be flattened down to their elements. The result of selective-flatten is a flat list of strings and/or hiccup elements.
+<!-- 
+ --><p><div class="code-container"><pre class="src-clojure">(defn de-dupe
+  "Remove only consecutive duplicate entries from the `list`."
+  [list]
+  (->> list
+       (partition-by identity)
+       (map first)))
+
+(defn selective-flatten
+  ([l] (selective-flatten [] l))
+  ([acc l]
+   (if (seq l)
+     (let [item (first l)
+           xacc (if (or (string? item)
+                        (and (vector? item) (keyword? (first item))))
+                 (conj acc item)
+                 (into [] (concat acc (selective-flatten item))))]
+       (recur xacc (rest l)))
+     (apply list acc))))
+
+(defmethod node->hiccup :list
+  [node]
+  (->> node
+       (map node->hiccup)
+       (remove nil?)
+       de-dupe
+       selective-flatten))
+</pre></div><p></p></p></section><section class="hsec4"><h4>re-grouping</h4>The flattened list of hiccup elements can then be processed and re-grouped on the basis of inline elements and string-br pairs. The html from hey.com blog posts has a lot of <br> tags and plain strings. I think that comes from the fact that it's html formatted to be viewed by email readers. However, for re-hosting to my own site, I want to use proper html structure, and so I want to group plain strings and <br> tags into <p> tags. I also need to make sure 
+<code>ul
+</code>, 
+<code>ol
+</code>, 
+<code>li
+</code>, 
+<code>em
+</code>, and 
+<code>strong
+</code> tags are handled appropriately, so I have some grouping to do.
+<!-- 
+ --><p>I also de-dupe the list which can be helpful in eliminating extra newlines. There is a slight risk of this eliminating a deliberately duplicated sentence, but I'll just accept that as a potential weakness to this solution. I don't think I'll use that writing style at all anyway.
+<p><div class="code-container"><pre class="src-clojure">(defn inline-elem? [item] (when (#{:em :strong :a} (first item)) true))
+(defn inline? [item] (or (string? item) (inline-elem? item)))
+
+(defn group-inline
+  "Groups the `list` of strings and Hiccup elements using the `inline?` predicate and wraps them in <p> tags.
+  Once all groups are wrapped, the list is flattened again and any remaining <br> tags are removed."
+  [list]
+  (let [groups (partition-by inline? list)
+        f (fn [l]
+            (if (not= (first (first l)) :br)
+              (into [:p] l)
+              l))]
+    (->> groups
+         (map f)
+         selective-flatten
+         (remove #(= :br (first %))))))
+</pre></div><p></p></p></p></section></section><section class="hsec3"><h3>edn</h3>Put all of the node transforms and list manipulations together to build an entry->edn function.
+<p><div class="code-container"><pre class="src-clojure">(defn html-str->hiccup
+  "Parses and converts an html string `s` into a Hiccup data structure."
+  [s]
+  (-> s
+      (xml/parse-str {:namespace-aware false})
+      node->hiccup
+      group-inline
+      de-dupe))
+
+(defn entry->edn
+  "Converts a parsed XML entry node into a Hiccup data structure."
+  [entry]
+  (let [entry (normalize-entry entry)]
+    {:id (:id entry)
+     :file-contents (assoc entry :post (->> entry :content
+                                            clean-html
+                                            html-str->hiccup))}))
+</pre></div><p></p></p></section></section></section></main><footer><p>Written by <span style="font-style:italic;">adam-james</span></p><p>Generated by <span style="font-weight:bold;"><a href="https://github.com/adam-james-v/radish">radish</a></span></p></footer></body></html>
